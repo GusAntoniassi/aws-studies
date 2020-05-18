@@ -1,0 +1,117 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  This template implements two EC2 instances, one is a generic Windows Server
+  and the other one is a generic Linux (amazon linux) server.
+
+Parameters:
+  KeyName:
+    Type: String
+    Description: The private key name from AWS console that will be attached to the EC2 instances
+
+Mappings:
+  AWSRegion2AMI:
+    us-east-1:
+      AmazonLinux: ami-0323c3dd2da7fb37d
+      WindowsServer: ami-0c278895328cddfdd
+    us-west-1:
+      AmazonLinux: ami-06fcc1f0bc2c8943f
+      WindowsServer: ami-0390f4b65b4cbe84a
+
+Resources:
+  SSMEC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'gus-ssm'
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com" 
+            Action: 
+              - "sts:AssumeRole"
+
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  SSMHybridRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'gus-ssm-hybrid'
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ssm.amazonaws.com" 
+            Action: 
+              - "sts:AssumeRole"
+
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  SSMInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: 'gus-ssm'
+      Roles: 
+        - !Ref SSMEC2Role
+
+  LinuxInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap 
+        - AWSRegion2AMI
+        - !Ref AWS::Region
+        - AmazonLinux
+      InstanceType: t3a.nano
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref SSMInstanceProfile
+      BlockDeviceMappings:
+      - DeviceName: /dev/sda1
+        Ebs: 
+          VolumeSize: 10
+      Tags:
+        - Key: Name
+          Value: gus-ssm-linux-server
+        - Key: Owner
+          Value: gus
+        - Key: Group
+          Value: ssm-study
+        - Key: Environment
+          Value: linux
+
+  WindowsInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap 
+        - AWSRegion2AMI
+        - !Ref AWS::Region
+        - WindowsServer
+      InstanceType: t3a.nano
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref SSMInstanceProfile
+      BlockDeviceMappings:
+      - DeviceName: /dev/sda1
+        Ebs: 
+          VolumeSize: 30 # This is a Windows AMI hard limit, can't go below that unfortunately :(
+      Tags:
+        - Key: Name
+          Value: gus-ssm-windows-server
+        - Key: Owner
+          Value: gus
+        - Key: Group
+          Value: ssm-study
+        - Key: Environment
+          Value: windows
+
+Outputs:
+  LinuxPublicDNS: 
+    Value: !GetAtt LinuxInstance.PublicDnsName
+    Description: The Linux EC2's public domain name
+
+  WindowsPublicDNS: 
+    Value: !GetAtt WindowsInstance.PublicDnsName
+    Description: The Windows EC2's public domain name
