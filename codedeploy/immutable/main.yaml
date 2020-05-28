@@ -1,0 +1,164 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  This template implements a CodeDeploy configured to deliver updates to an AutoScaling
+  Group with an Immutable deployment. The deployement should add instances to the ASG, 
+  wait for them to become healthy and terminate the old instances.
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: The private key name from AWS console that will be attached to the EC2 instances
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  ImageId: 
+    Type: AWS::EC2::Image::Id
+    Description: ID of the AMI used in the EC2 instances
+    Default: ami-0323c3dd2da7fb37d
+
+Resources:
+  EC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: 'gus-codedeploy'
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - "ec2.amazonaws.com" 
+            Action: 
+              - "sts:AssumeRole"
+
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: 'gus-codedeploy'
+      Roles: 
+        - !Ref EC2Role
+
+  SecurityGroupHTTP:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: gus-codedeploy-sg
+      GroupDescription: Code Deploy - HTTP Access
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: gus-codedeploy
+      LaunchTemplateData: 
+        IamInstanceProfile:
+          Arn: !GetAtt EC2InstanceProfile.Arn
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 8
+        CreditSpecification: 
+          CpuCredits: standard
+        ImageId: !Ref ImageId
+        InstanceMarketOptions:
+          MarketType: spot
+          SpotOptions:
+            SpotInstanceType: one-time
+        InstanceType: t3a.nano
+        KeyName: !Ref KeyName
+        SecurityGroupIds: 
+          - !Ref SecurityGroupHTTP
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+            - Key: Name
+              Value: gus-codedeploy-ec2 
+            - Key: Project
+              Value: gus-codedeploy
+        UserData: !Base64 |
+            #!/bin/bash
+
+            aws s3 cp s3://russia-testes-gerais/teste-web-app-go .
+            sudo chmod +x teste-web-app-go
+            sudo ./teste-web-app-go
+
+  EC2TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: gus-codedeploy-tg
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref VPCId
+      HealthCheckIntervalSeconds: 60
+      HealthCheckPath: /
+      HealthCheckPort: "80"
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher: 
+        HttpCode: 200,204,301,302
+  ELB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Name: gus-codedeploy-alb
+      Scheme: internet-facing
+      SecurityGroups: 
+        - !Ref SecurityGroupHTTP
+      Subnets: !Ref SubnetIds 
+      Tags:
+        - Key: Project
+          Value: gus-codedeploy
+      Type: application
+
+  ELBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref EC2TargetGroup
+      LoadBalancerArn: !Ref ELB
+      Port: 80
+      Protocol: HTTP
+
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: gus-codedeploy
+      DesiredCapacity: "2"
+      MaxSize: "2"
+      MinSize: "2"
+      HealthCheckGracePeriod: 60
+      HealthCheckType: ELB
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      TargetGroupARNs: [ !Ref EC2TargetGroup ]
+      TerminationPolicies: [ "OldestLaunchTemplate", ClosestToNextInstanceHour ]
+      VPCZoneIdentifier: !Ref SubnetIds
+
+  # CodeDeploy:
+
+
+Outputs:
+  ELBPublicDNS: 
+    Value: !GetAtt ELB.DNSName

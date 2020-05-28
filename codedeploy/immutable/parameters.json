@@ -1,0 +1,14 @@
+[
+    {
+        "ParameterKey": "KeyName",
+        "ParameterValue": "gus"
+    },
+    {
+        "ParameterKey": "VPCId",
+        "ParameterValue": "vpc-fd37ae87"
+    },
+    {
+        "ParameterKey": "SubnetIds",
+        "ParameterValue": "subnet-e748d8d9,subnet-a20c0aad"
+    }
+]
