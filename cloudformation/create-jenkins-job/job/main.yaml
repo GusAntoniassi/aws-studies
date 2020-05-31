@@ -1,0 +1,26 @@
+Resources:
+  JenkinsJob:
+    Type: Custom::JenkinsJob
+    Properties:
+      ServiceToken: !ImportValue CreateJenkinsJobLambda
+      JenkinsHost: http://3.94.213.158:8080
+      JenkinsUsername: admin
+      JenkinsApiToken: 1108db38f8dfde7d6a384bc21b08d29db8
+      JobName: teste-job-lambda
+      JobPipeline: |
+        pipeline { 
+          agent none 
+          stages { 
+            stage('Build') { 
+              steps { 
+                echo 'Hello build!' 
+              } 
+            } 
+            
+            stage('Deploy') { 
+              steps { 
+                echo 'Hello deploy!' 
+              } 
+            } 
+          }
+        }

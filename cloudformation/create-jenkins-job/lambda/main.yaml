@@ -1,0 +1,52 @@
+Parameters:
+  SourceCodeS3Bucket:
+    Type: String
+    Description: Name of the bucket the source code zip file is stored in
+  SourceCodeS3Filename:
+    Type: String
+    Description: Name of the source code zip file in S3
+    Default: create-jenkins-job-lambda-v2.zip
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: ALlow
+          Principal:
+            Service:
+            - lambda.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: jenkins-lambda-execution-policy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - "logs:CreateLogGroup"
+            - "logs:CreateLogStream"
+            - "logs:PutLogEvents"
+            Resource: "*"
+
+  LambdaFunction:
+    Type: "AWS::Lambda::Function"
+    Properties:
+      Handler: "index.handler"
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: "python3.7"
+      Timeout: 600
+      Code:
+        S3Bucket: !Ref SourceCodeS3Bucket
+        S3Key: !Ref SourceCodeS3Filename
+
+Outputs:
+  CreateJenkinsJobLambda:
+    Description: The ARN of the Lambda to be used in other stacks
+    Value: !GetAtt LambdaFunction.Arn
+    Export:
+      Name: CreateJenkinsJobLambda
